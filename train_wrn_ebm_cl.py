@@ -371,31 +371,6 @@ def main(args):
 
                 L += args.p_x_weight * l_p_x
 
-
-            if args.p_x_y_past_weight > 0:  # maximize log p(x)
-                if args.class_cond_p_x_sample:
-                    assert not args.uncond, "can only draw class-conditional samples if EBM is class-cond"
-                    y_q = t.randint(0, args.n_classes, (args.batch_size,)).to(device)
-                    x_q = sample_q(f, replay_buffer, y=y_q)
-                else:
-                    x_q = sample_q(f, replay_buffer)  # sample from log-sumexp
-
-                fp_all = f(x_p_d)
-                fq_all = f(x_q)
-                fp = fp_all.mean()
-                fq = fq_all.mean()
-
-                l_p_x = -(fp - fq)
-                if global_iter % args.print_every == 0:
-                    print('P(x) | {}:{:>d} f(x_p_d)={:>14.9f} f(x_q)={:>14.9f} d={:>14.9f}'.format(epoch, i, fp, fq,
-                                                                                                   fp - fq))
-                    neptune.send_metric('f(x_p_d)', x=global_iter, y=fp)
-                    neptune.send_metric('f(x_q)', x=global_iter, y=fq)
-                    neptune.send_metric('f(x_p_d)-f(x_q)', x=global_iter, y=fp-fq)
-
-                L += args.p_x_weight * l_p_x
-
-
             if args.p_y_given_x_weight > 0:  # maximize log p(y | x)
                 logits = f.classify(x_lab)
                 l_p_y_given_x = nn.CrossEntropyLoss()(logits, y_lab)
