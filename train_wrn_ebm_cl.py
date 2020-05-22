@@ -326,10 +326,19 @@ def main(args):
       print('\nFIT ON {}. SPLIT\n'.format(sp))
       cur_iter = 0
 
-      seen_labels = list(np.array(labels_in_splits[:sp]).flat)
+      past_labels = list(np.array(labels_in_splits[:sp]).flat)
+      print(past_labels)
+      curr_labels = list(np.array(labels_in_splits[sp]).flat)
+      print(curr_labels)
 
       dload_train = dload_train_splits[sp]
       dload_train_labeled = dload_train_labeled_splits[sp]
+
+      if args.p_y_given_x_past_weight > 0 and len(past_labels) > 0:
+        print("Wokring on the past buffer a little bit..")
+        for j in range(500):
+          y_past = t.from_numpy(np.random.choice(past_labels, args.batch_size, p=None)).to(device)
+          x_past = sample_q(f, past_buffer, y=y_past, n_steps=100)
 
       for epoch in range(args.n_epochs):
         if epoch in args.decay_epochs:
@@ -351,7 +360,8 @@ def main(args):
             if args.p_x_weight > 0:  # maximize log p(x)
                 if args.class_cond_p_x_sample:
                     assert not args.uncond, "can only draw class-conditional samples if EBM is class-cond"
-                    y_q = t.randint(0, args.n_classes, (args.batch_size,)).to(device)
+                    y_q = t.from_numpy(np.random.choice(curr_labels, args.batch_size, p=None)).to(device)
+                    #y_q = t.randint(0, args.n_classes, (args.batch_size,)).to(device)
                     x_q = sample_q(f, replay_buffer, y=y_q)
                 else:
                     x_q = sample_q(f, replay_buffer)  # sample from log-sumexp
@@ -399,8 +409,8 @@ def main(args):
 
                 L += args.p_x_y_weight * l_p_x_y
 
-            if args.p_y_given_x_past_weight > 0:
-                y_past = np.random.choice(past_labels, args.batch_size, p=None)
+            if args.p_y_given_x_past_weight > 0 and len(past_labels) > 0:
+                y_past = t.from_numpy(np.random.choice(past_labels, args.batch_size, p=None)).to(device)
                 #y_past = t.randint(0, args.n_classes, (args.batch_size,)).to(device)
                 x_past = sample_q(f, past_buffer, y=y_past)
 
@@ -441,7 +451,7 @@ def main(args):
                     plot(filename_uncond, x_q)
                     neptune.send_image('samples_uncond', x=global_iter, y=filename_uncond)
                 if args.plot_cond:  # generate class-conditional samples
-                    y = t.arange(0, args.n_classes)[None].repeat(args.n_classes, 1).transpose(1, 0).contiguous().view(-1).to(device)
+                    y = t.arange(0, args.n_classes).repeat(10, 1).transpose(1, 0).contiguous().view(-1).to(device)
                     x_q_y = sample_q(f, replay_buffer, y=y)
                     filename_cond = '{}/x_q_y{}_{:>06d}_{:>06d}.png'.format(args.save_dir, epoch, i, global_iter)
                     plot(filename_cond, x_q_y)
