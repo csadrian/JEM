@@ -334,6 +334,9 @@ def main(args):
       dload_train = dload_train_splits[sp]
       dload_train_labeled = dload_train_labeled_splits[sp]
 
+      if sp > 0:
+        dload_train_prev_labeled = dload_train_labeled_splits[sp-1]
+
       if args.p_y_given_x_past_weight > 0 and len(past_labels) > 0:
         print("Wokring on the past buffer a little bit..")
         for j in range(500):
@@ -411,11 +414,14 @@ def main(args):
 
             if args.p_y_given_x_past_weight > 0 and len(past_labels) > 0:
                 y_past = t.from_numpy(np.random.choice(past_labels, args.batch_size, p=None)).to(device)
-                #y_past = t.randint(0, args.n_classes, (args.batch_size,)).to(device)
+                ##y_past = t.randint(0, args.n_classes, (args.batch_size,)).to(device)
                 x_past = sample_q(f, past_buffer, y=y_past)
 
-                logits = f.classify(x_past)
-                l_p_y_given_x_past = nn.CrossEntropyLoss()(logits, y_past)
+                #x_past, y_past = dload_train_prev_labeled.__next__()
+                x_past, y_past = x_past.to(device), y_past.to(device)
+
+                logits_past = f.classify(x_past)
+                l_p_y_given_x_past = nn.CrossEntropyLoss()(logits_past, y_past)
                 if global_iter % args.print_every == 0:
                     acc_past = (logits.max(1)[1] == y_past).float().mean()
                     print('P(y|x_past) {}:{:>d} loss={:>14.9f}, acc={:>14.9f}'.format(epoch,
@@ -426,6 +432,7 @@ def main(args):
                     neptune.send_metric('loss_p_y_given_x_past', x=global_iter, y=l_p_y_given_x_past.item())
 
                 L += args.p_y_given_x_past_weight * l_p_y_given_x_past
+
 
 
             # break if the loss diverged...easier for poppa to run experiments this way
