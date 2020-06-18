@@ -23,6 +23,7 @@ import argparse
 #import ipdb
 import numpy as np
 import wideresnet
+import convnet
 import json
 import neptune
 # Sampling
@@ -51,9 +52,12 @@ class DataSubset(Dataset):
 
 
 class F(nn.Module):
-    def __init__(self, depth=28, width=2, norm=None, dropout_rate=0.0, n_classes=10):
+    def __init__(self, net_type="wideresnet", depth=28, width=2, norm=None, dropout_rate=0.0, n_classes=10):
         super(F, self).__init__()
-        self.f = wideresnet.Wide_ResNet(depth, width, norm=norm, dropout_rate=dropout_rate)
+        if net_type == "wideresnet":
+            self.f = wideresnet.Wide_ResNet(depth, width, norm=norm, dropout_rate=dropout_rate)
+        elif net_type == "convnet":
+            self.f = convnet.ConvNet(depth=depth, widen_factor=width, norm=norm)
         self.energy_output = nn.Linear(self.f.last_dim, 1)
         self.class_output = nn.Linear(self.f.last_dim, n_classes)
 
@@ -67,8 +71,8 @@ class F(nn.Module):
 
 
 class CCF(F):
-    def __init__(self, depth=28, width=2, norm=None, dropout_rate=0.0, n_classes=10):
-        super(CCF, self).__init__(depth, width, norm=norm, dropout_rate=dropout_rate, n_classes=n_classes)
+    def __init__(self, net_type="wideresnet", depth=28, width=2, norm=None, dropout_rate=0.0, n_classes=10):
+        super(CCF, self).__init__(net_type, depth, width, norm=norm, dropout_rate=dropout_rate, n_classes=n_classes)
 
     def forward(self, x, y=None):
         logits = self.classify(x)
@@ -110,7 +114,7 @@ def init_random(args, bs):
 
 def get_model_and_buffer(args, device, sample_q):
     model_cls = F if args.uncond else CCF
-    f = model_cls(args.depth, args.width, args.norm, dropout_rate=args.dropout_rate, n_classes=args.n_classes)
+    f = model_cls(args.net_type, args.depth, args.width, args.norm, dropout_rate=args.dropout_rate, n_classes=args.n_classes)
     if not args.uncond:
         assert args.buffer_size % args.n_classes == 0, "Buffer size must be divisible by args.n_classes"
     if args.load_path is None:
@@ -183,7 +187,7 @@ def get_data(args):
     else:
         train_labeled_inds = train_inds
 
-        
+
     dset_train = DataSubset(dataset_fn(True, transform_train), inds=train_inds)
     dset_train_labeled = DataSubset(dataset_fn(True, transform_train), inds=train_labeled_inds)
     dset_valid = DataSubset(dataset_fn(True, transform_test), inds=valid_inds)
@@ -522,6 +526,8 @@ if __name__ == "__main__":
                         help="stddev of gaussian noise to add to input, .03 works but .1 is more stable")
     parser.add_argument("--weight_decay", type=float, default=0.0)
     # network
+    parser.add_argument("--net_type", type=str, default="wideresnet", choices=["wideresnet", "convnet"],
+                        help="net type")
     parser.add_argument("--norm", type=str, default=None, choices=[None, "norm", "batch", "instance", "layer", "act"],
                         help="norm to add to weights, none works fine")
     # EBM specific
