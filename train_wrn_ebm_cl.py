@@ -31,9 +31,6 @@ from tqdm import tqdm
 t.backends.cudnn.benchmark = True
 t.backends.cudnn.enabled = True
 seed = 1
-im_sz = 32
-n_ch = 3
-
 
 
 class DataSubset(Dataset):
@@ -52,12 +49,12 @@ class DataSubset(Dataset):
 
 
 class F(nn.Module):
-    def __init__(self, net_type="wideresnet", depth=28, width=2, norm=None, dropout_rate=0.0, n_classes=10):
+    def __init__(self, net_type="wideresnet", depth=28, width=2, norm=None, dropout_rate=0.0, n_classes=10, in_channels=3):
         super(F, self).__init__()
         if net_type == "wideresnet":
-            self.f = wideresnet.Wide_ResNet(depth, width, norm=norm, dropout_rate=dropout_rate)
+            self.f = wideresnet.Wide_ResNet(depth, width, norm=norm, dropout_rate=dropout_rate, inpu_channels=in_channels)
         elif net_type == "convnet":
-            self.f = convnet.ConvNet(depth=depth, widen_factor=width, norm=norm)
+            self.f = convnet.ConvNet(depth=depth, widen_factor=width, norm=norm, input_channels=in_channels)
         self.energy_output = nn.Linear(self.f.last_dim, 1)
         self.class_output = nn.Linear(self.f.last_dim, n_classes)
 
@@ -71,8 +68,8 @@ class F(nn.Module):
 
 
 class CCF(F):
-    def __init__(self, net_type="wideresnet", depth=28, width=2, norm=None, dropout_rate=0.0, n_classes=10):
-        super(CCF, self).__init__(net_type, depth, width, norm=norm, dropout_rate=dropout_rate, n_classes=n_classes)
+    def __init__(self, net_type="wideresnet", depth=28, width=2, norm=None, dropout_rate=0.0, n_classes=10, in_channels=3):
+        super(CCF, self).__init__(net_type, depth, width, norm=norm, dropout_rate=dropout_rate, n_classes=n_classes, in_channels=in_channels)
 
     def forward(self, x, y=None):
         logits = self.classify(x)
@@ -109,12 +106,12 @@ def grad_vals(m):
 
 
 def init_random(args, bs):
-    return t.FloatTensor(bs, n_ch, im_sz, im_sz).uniform_(-1, 1)
+    return t.FloatTensor(bs, args.n_channels, args.im_size, args.im_size).uniform_(-1, 1)
 
 
 def get_model_and_buffer(args, device, sample_q):
     model_cls = F if args.uncond else CCF
-    f = model_cls(args.net_type, args.depth, args.width, args.norm, dropout_rate=args.dropout_rate, n_classes=args.n_classes)
+    f = model_cls(args.net_type, args.depth, args.width, args.norm, dropout_rate=args.dropout_rate, n_classes=args.n_classes, in_channels=args.n_channels)
     if not args.uncond:
         assert args.buffer_size % args.n_classes == 0, "Buffer size must be divisible by args.n_classes"
     if args.load_path is None:
@@ -135,7 +132,7 @@ def get_data(args):
     if args.dataset == "svhn":
         transform_train = tr.Compose(
             [tr.Pad(4, padding_mode="reflect"),
-             tr.RandomCrop(im_sz),
+             tr.RandomCrop(args.im_size),
              tr.ToTensor(),
              tr.Normalize((.5, .5, .5), (.5, .5, .5)),
              lambda x: x + args.sigma * t.randn_like(x)]
@@ -143,19 +140,22 @@ def get_data(args):
     else:
         transform_train = tr.Compose(
             [tr.Pad(4, padding_mode="reflect"),
-             tr.RandomCrop(im_sz),
+             tr.RandomCrop(args.im_size),
              tr.RandomHorizontalFlip(),
              tr.ToTensor(),
-             tr.Normalize((.5, .5, .5), (.5, .5, .5)),
+             tr.Normalize([.5] * args.n_channels, [.5] * args.n_channels),
              lambda x: x + args.sigma * t.randn_like(x)]
         )
     transform_test = tr.Compose(
         [tr.ToTensor(),
-         tr.Normalize((.5, .5, .5), (.5, .5, .5)),
+         tr.Normalize([.5] * args.n_channels, [.5] * args.n_channels),
          lambda x: x + args.sigma * t.randn_like(x)]
     )
+
     def dataset_fn(train, transform):
-        if args.dataset == "cifar10":
+        if args.dataset == "mnist":
+            return tv.datasets.MNIST(root=args.data_root, transform=transform, download=True, train=train)
+        elif args.dataset == "cifar10":
             return tv.datasets.CIFAR10(root=args.data_root, transform=transform, download=True, train=train)
         elif args.dataset == "cifar100":
             return tv.datasets.CIFAR100(root=args.data_root, transform=transform, download=True, train=train)
@@ -498,7 +498,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Energy Based Models and Shit")
-    parser.add_argument("--dataset", type=str, default="cifar10", choices=["cifar10", "svhn", "cifar100"])
+    parser.add_argument("--dataset", type=str, default="cifar10", choices=["cifar10", "svhn", "cifar100", "mnist"])
     parser.add_argument("--data_root", type=str, default="../data")
     # optimization
     parser.add_argument("--lr", type=float, default=1e-4)
@@ -558,6 +558,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     args.n_classes = 100 if args.dataset == "cifar100" else 10
+    args.n_channels = 1 if args.dataset == "mnist" else 3
+    args.im_size = 28 if args.dataset == "mnist" else 32
 
     use_neptune = "NEPTUNE_API_TOKEN" in os.environ
     if use_neptune:
